@@ -78,6 +78,7 @@ RentBot: Before moving in, take dated photos and video of every room and email
 
 ## How to Run
 
+
 **Requirements:** Python 3.9+
 
 1. Clone the repo and install dependencies:
@@ -91,11 +92,13 @@ RentBot: Before moving in, take dated photos and video of every room and email
    ```
    Get a free key at [console.groq.com](https://console.groq.com).
 
-3. Launch the app:
    ```bash
    python bot.py
    ```
    Gradio will print a local URL (e.g. `http://127.0.0.1:7860`). Open it in your browser.
+
+3. Launch the app: https://huggingface.co/spaces/tdawggg/rentbot
+
 
 **For Hugging Face Spaces deployment:** Set `GROQ_API_KEY` as a Space secret under *Settings → Variables and secrets*. The `rentals.csv` file is tracked via Git LFS — clone with `git lfs pull` to get it locally.
 
