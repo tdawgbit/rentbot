@@ -13,6 +13,7 @@ load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 RENTCAST_API_KEY = os.getenv("RENTCAST_API_KEY")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ── Tools ──────────────────────────────────────────────────────────────────────
 
@@ -33,9 +34,33 @@ STATE_ABBREVS = {
 @tool
 def search_rentals(city: str, state: str, max_rent: int) -> str:
     """Search for rental listings in a given city and state under a max monthly rent price."""
+    state_code = STATE_ABBREVS.get(state.lower(), state.upper())
+
+    # Try RentCast API first
+    if RENTCAST_API_KEY:
+        try:
+            resp = requests.get(
+                "https://api.rentcast.io/v1/listings/rental/long-term",
+                headers={"X-Api-Key": RENTCAST_API_KEY},
+                params={"city": city, "state": state_code, "limit": 10},
+                timeout=10,
+            )
+            if resp.ok:
+                listings = [l for l in resp.json() if l.get("price") and l["price"] <= max_rent]
+                if listings:
+                    results = []
+                    for l in listings:
+                        sqft = f" | {l['squareFootage']} sqft" if l.get("squareFootage") else ""
+                        beds = l.get("bedrooms", "?")
+                        baths = l.get("bathrooms", "?")
+                        results.append(f"• {l['formattedAddress']} — ${l['price']}/mo | {beds} bed / {baths} bath{sqft}")
+                    return f"Live rentals in {city}, {state} under ${max_rent}/mo:\n" + "\n".join(results)
+        except Exception:
+            pass
+
+    # Fall back to CSV
     try:
-        state_code = STATE_ABBREVS.get(state.lower(), state.upper())
-        df = pd.read_csv("rentals.csv", sep=";", encoding="latin-1", on_bad_lines="skip", low_memory=False)
+        df = pd.read_csv(os.path.join(BASE_DIR, "rentals.csv"), sep=";", encoding="latin-1", on_bad_lines="skip", low_memory=False)
         df["price"] = pd.to_numeric(df["price"], errors="coerce")
         filtered = df[
             (df["cityname"].str.strip().str.lower() == city.strip().lower()) &
@@ -51,7 +76,7 @@ def search_rentals(city: str, state: str, max_rent: int) -> str:
             results.append(f"• {row['address']} — ${int(row['price'])}/mo | {row['bedrooms']} bed / {row['bathrooms']} bath{sqft}{pets}")
         return f"Rentals in {city}, {state} under ${max_rent}/mo:\n" + "\n".join(results)
     except FileNotFoundError:
-        return "Rentals data file not found. Make sure rentals.csv is in the same folder as bot.py."
+        return "Rentals data file not found."
     except Exception as e:
         return f"Error searching rentals: {e}"
 
@@ -98,7 +123,7 @@ def calculate_affordability(monthly_income: float) -> str:
 def get_renter_tips(topic: str) -> str:
     """Get helpful renter tips and advice. Topics include: lease, deposit, utilities, moving, rights."""
     try:
-        with open("renter_tips.md", "r", encoding="utf-8") as f:
+        with open(os.path.join(BASE_DIR, "renter_tips.md"), "r", encoding="utf-8") as f:
             content = f.read()
         sections = content.split("\n## ")
         for section in sections:
@@ -121,11 +146,14 @@ tools = [search_rentals, get_neighborhood_info, calculate_affordability, get_ren
 
 SYSTEM_PROMPT = (
     "You are RentBot, a friendly AI assistant that helps people find apartments and houses for rent. "
-    "You have four tools: search for real listings, get neighborhood info, calculate affordability, and share renter tips. "
-    "Always be concise, helpful, and encouraging. "
-    "If the user asks to search for rentals but hasn't provided a city or state, ask for those details first. "
+    "You have four tools and you MUST use them — never make up listings or information from memory.\n\n"
+    "- search_rentals: call this whenever the user wants to find rentals. Requires city, state, and max_rent.\n"
+    "- get_neighborhood_info: call this when the user asks about a neighborhood or city.\n"
+    "- calculate_affordability: call this when the user mentions their income or asks what they can afford.\n"
+    "- get_renter_tips: call this when the user asks about leases, deposits, utilities, moving, or renter rights.\n\n"
+    "If the user asks to search for rentals but hasn't provided a city, state, or budget, ask for those details first. "
     "When displaying listings, format them clearly with bullet points. "
-    "If the search tool returns no results, tell the user clearly that no listings were found for that city and suggest they try a nearby major city."
+    "If the search tool returns no results, tell the user clearly and suggest a nearby major city."
 )
 
 agent = create_react_agent(
